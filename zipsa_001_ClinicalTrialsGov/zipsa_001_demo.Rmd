@@ -1,0 +1,65 @@
+---
+title: "Zipsa001_ClinicalTrials_gov"
+output: html_document
+---
+# libraries
+```{r}
+library(tidyverse)
+homeDir = dirname(rstudioapi::getSourceEditorContext()$path) # relative dir
+
+rm(list = ls()[!grepl("homeDir",ls())])
+
+```
+
+# data import
+```{r}
+df <- read_csv(file = paste0(homeDir, "/data-1670629553603.csv"))
+```
+
+# visualization
+```{r}
+
+df_2 <- df %>% 
+  mutate(start_date = as.Date(start_date, format = "%Y-%m-%d")) %>% 
+  mutate(start_year = format(start_date, "%Y"), .after=start_date)
+
+
+df_2
+
+# plot
+ggplot(df_2, aes(x=start_year)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+#remove NA and phases
+df_2 %>% 
+  filter(!is.na(start_year)) %>% 
+  filter(start_year<=2023) %>% 
+  ggplot(., aes(x=start_year))+
+  geom_bar(aes(fill=phase)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+# drug specific analysis
+df_2 %>% filter(name_intervention %in% c("nivolumab")) 
+df_2$name_intervention %>% head()
+
+
+df_2 %>% filter(grepl("Nivolumab", name_intervention))
+
+df_3<- df_2 %>% filter(grepl("Nivolumab|Pembrolizumab|Cemiplimab", name_intervention))
+
+df_3 %>% 
+  mutate(cat = ifelse(grepl("Nivolumab", name_intervention), "Nivolumab", 
+                      ifelse(grepl("Pembrolizumab", name_intervention), "Pembro", 
+                             ifelse(grepl("Cemiplimab", name_intervention), "Cemip", "Not assigned")))) %>% 
+  ggplot(., aes(x=start_year)) +
+  geom_bar(aes(fill=cat)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  theme_bw() +
+  scale_fill_brewer(palette="Dark2")
+
+
+```
+
