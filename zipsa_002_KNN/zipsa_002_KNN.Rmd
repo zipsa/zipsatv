@@ -1,0 +1,105 @@
+---
+title: "Zipsa002_KNN"
+output: html_document
+---
+# libraries
+```{r}
+library(tidyverse)
+homeDir = dirname(rstudioapi::getSourceEditorContext()$path) # relative dir
+
+rm(list = ls()[!grepl("homeDir",ls())])
+
+```
+
+# data import
+```{r}
+df <- read_csv(file = paste0(homeDir, "/wdbc.data"), col_names =FALSE)
+colnames(df) <- c("id", "diagnosis", 
+                  "radius_mean", "texture_mean", "perimeter_mean", "area_mean", "smoothness_mean", 
+                  "compactness_mean", "concavity_mean", "concave_mean", "symmetry_mean", "fr_dim_mean",
+                  "radius_se", "texture_se", "perimeter_se", "area_se", "smoothness_se", 
+                  "compactness_se", "concavity_se", "concave_se", "symmetry_se", "fr_dim_se",
+                  "radius_worst", "texture_worst", "perimeter_worst", "area_worst", "smoothness_worst", 
+                  "compactness_worst", "concavity_worst", "concave_worst", "symmetry_worst", "fr_dim_worst")
+df<- df[sample(nrow(df)),] #shuffle rows
+str(df)
+
+```
+# data pre-process
+```{r}
+df <- df[-1] #remove patient number
+table(df$diagnosis) # Hope to predict these
+
+df$diagnosis %>% class
+df$diagnosis <- factor(df$diagnosis, levels= c("B", "M"), labels= c("Benign", "Malignant"))
+
+table(df$diagnosis) %>% prop.table
+```
+
+# checking data distribution and normalization
+```{r}
+library(Hmisc)
+hist.data.frame(df) #distribution
+
+df[c("radius_mean", "area_mean", "smoothness_mean")] # range issue
+
+#min-max normalization
+normalize <- function(x){
+  results <- (x-min(x))/(max(x)-min(x))
+  return (results)
+}
+
+#test
+normalize(c(1,2,3))
+normalize(c(50,244,300))
+
+#Normalize all values per column
+df_n <- lapply(df[2:ncol(df)], normalize) %>% as.tibble 
+df_nl <- cbind(df[1],df_n)
+hist.data.frame(df_nl) #distribution
+
+```
+
+# train and test datasets
+```{r}
+#split 8:2 train and test
+split <- sample(c(TRUE, FALSE), nrow(df_nl), replace=TRUE, prob=c(0.8,0.2))
+df_train  <- df_nl[split, ]
+df_test   <- df_nl[!split, ]
+
+# extract labels only (for future evaluation)
+df_train_lables <- df_train[,1]
+df_test_lables <- df_test[,1]
+
+# remove label for running
+df_train <- df_train[2: ncol(df_train)]
+df_test <- df_test[2: ncol(df_test)]
+
+```
+
+# Training and test a model
+```{r}
+library(class) #knn function
+??knn
+
+# Testing the optimal K
+k_optimal <- dim(df_train)[1] %>% sqrt() %>% round
+
+# predicting the diagnosis of test dataset
+pred <- knn(train = df_train, 
+            test = df_test, 
+            cl = df_train_lables, 
+            k = k_optimal) 
+
+
+
+library(gmodels)
+CrossTable(x=df_test_lables, 
+           y=pred,
+           prop.chisq = FALSE)
+
+```
+
+
+
+
