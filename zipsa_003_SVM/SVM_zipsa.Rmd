@@ -1,0 +1,182 @@
+---
+title: "Zipsa003_SVM"
+output: html_document
+---
+# libraries
+```{r}
+library(tidyverse) 
+homeDir = dirname(rstudioapi::getSourceEditorContext()$path) # relative dir
+
+rm(list = ls()[!grepl("homeDir",ls())])
+
+# References
+# https://du-bii.github.io/module-3-Stat-R/stat-R_2021/tutorials/machine-learning_TCGA-BIC/01_data-loading_TCGA-BIC.html#
+# https://du-bii.github.io/module-3-Stat-R/stat-R_2021/tutorials/machine-learning_TCGA-BIC/04_supervised-classification_TCGA-BIC_tuto-tp.html#Data_loading
+
+```
+
+
+
+# Import pre-processed CSV
+```{r}
+bic_folder <- paste0(homeDir, "/TCGA-BIC_analysis/")
+
+bic_expr_labels <- read.csv(paste0(bic_folder, "bic_expr_labels.csv"), row.names = 1);bic_expr_labels
+bic_expr_labels[1:10, 1:10]
+
+bic_meta <- read.csv(paste0(bic_folder, "bic_meta.csv"), row.names = 1);bic_meta
+bic_meta %>% group_by(cancer.type) %>% tally
+```
+# Gene expression normalization status
+```{r}
+#### Box plot ####
+sample_size <- 30
+
+## select sample indices
+selected_samples <- sort(sample(
+  x = 1:ncol(bic_expr_labels), 
+  size = sample_size,
+  replace = FALSE))
+
+boxplot(x = bic_expr_labels[, selected_samples], 
+        names = bic_meta$label[selected_samples],
+        col = bic_meta$color[selected_samples],
+        xlab = "log2(counts)",
+        main = "IQR-based scaling",
+        horizontal = TRUE, 
+        las = 1, notch = TRUE,
+        cex.axis = 0.7)
+
+```
+
+
+
+#lables
+```{r}
+#### Discard unclassified ####
+bic_meta_ok <- bic_meta[bic_meta$cancer.type != "Unclassified",]
+
+## Check that the metadata table has only the right classes
+nrow(bic_meta)
+nrow(bic_meta_ok)
+
+## Focus on 4 classification
+table(bic_meta_ok$cancer.type)
+
+```
+
+# Corresponding patients in RNAseq data
+```{r}
+bic_expr_class_ok <- t(bic_expr_labels[, bic_meta_ok$label])
+dim(bic_expr_class_ok)
+bic_classes_ok <- bic_meta_ok$cancer.type
+
+```
+
+# Split testing and training set
+```{r}
+
+## Count the number of samples (total, train and test)
+nsamples <- nrow(bic_expr_class_ok)
+nsamples_train <- round(nsamples * 2/3)
+nsamples_test <- nsamples - nsamples_train
+
+## Perform a random sampling of indices
+set.seed(123)
+resampled_indices <- sample(1:nsamples, replace = FALSE)
+train_indices <- resampled_indices[1:nsamples_train]
+test_indices <- setdiff(resampled_indices, train_indices)
+```
+
+
+# Training
+```{r}
+#### Train the SVM with the training subset ####
+
+## Define training set: expression matrix and class labels
+training_expr <- bic_expr_class_ok[train_indices, ]
+training_classes <- bic_meta_ok[train_indices, "cancer.type"]
+table(training_classes)
+
+# #library(e1071)
+# svm_kernel = "radial"
+# svm_model <- svm(x = training_expr, 
+#                  y = as.factor(training_classes), 
+#                  type = "C-classification", 
+#                  kernel = svm_kernel)
+
+library(kernlab)
+set.seed(12345)
+bic_classifier <- ksvm(as.factor(training_classes) ~ .,
+                       data = training_expr,
+                       kernel = "vanilladot")
+
+# look at basic information about the model
+bic_classifier
+
+## Step 4: Evaluating model performance ----
+# predictions on testing dataset
+testing_expr <- bic_expr_class_ok[test_indices, ]
+testing_classes <- bic_meta_ok[test_indices, "cancer.type"]
+
+# prediction results
+bic_predictions <- predict(bic_classifier, testing_expr)
+table(bic_predictions, testing_classes)
+
+# construct a vector of TRUE/FALSE indicating correct/incorrect predictions
+agreement <- bic_predictions == testing_classes
+table(agreement)
+prop.table(table(agreement))
+
+
+
+## Step 5: Improving model performance ----
+
+# change to a RBF kernel
+set.seed(12345)
+bic_classifier_rbf <- ksvm(as.factor(training_classes) ~ .,
+                       data = training_expr,
+                       kernel = "rbfdot")
+bic_predictions_rbf <- predict(bic_classifier_rbf, testing_expr)
+table(bic_predictions_rbf, testing_classes)
+
+agreement <- bic_predictions_rbf == testing_classes
+table(agreement)
+prop.table(table(agreement))
+
+
+
+# Test various values of the cost parameter (determining the C value)
+#cost_values <- c(1, seq(from = 2, to = 20, by = 2))
+cost_values <- c(0.1, seq(from = 0.2, to = 3, by = 0.2))
+
+accuracy_values <- sapply(cost_values, function(x) {
+  set.seed(12345)
+  m <- ksvm(as.factor(training_classes) ~ ., 
+            data = training_expr,
+            kernel = "rbfdot", 
+            C = x)
+  pred <- predict(m, testing_expr)
+  agree <- ifelse(pred == testing_classes, 1, 0)
+  accuracy <- sum(agree) / length(testing_classes)
+  return (accuracy)
+})
+
+plot(cost_values, accuracy_values, type = "b")
+
+
+#Best so far (My selection, c=2)
+set.seed(12345)
+bic_classifier_rbf_c2 <- ksvm(as.factor(training_classes) ~ .,
+                       data = training_expr,
+                       kernel = "rbfdot", 
+                       C = 2L)
+bic_predictions_rbf_c2 <- predict(bic_classifier_rbf_c2, testing_expr)
+table(bic_predictions_rbf_c2, testing_classes)
+
+agreement <- bic_predictions_rbf_c2 == testing_classes
+table(agreement)
+prop.table(table(agreement))
+
+
+```
